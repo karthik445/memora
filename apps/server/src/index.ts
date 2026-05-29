@@ -23,7 +23,8 @@ await app.register(staticFiles, { root: MEDIA_ROOT, prefix: '/media/' })
 app.addHook('onRequest', async (req, reply) => {
   const open = ['/auth/register', '/auth/login']
   if (open.some(p => req.url.startsWith(p))) return
-  if (req.url.startsWith('/presence')) return // WS handled separately
+  if (req.url.startsWith('/presence')) return
+  if (req.url.startsWith('/media/')) return // static files served publicly
   try {
     await req.jwtVerify()
   } catch {
