@@ -26,7 +26,7 @@ export function GalleryGrid({ photos, onSelect, onFlag }: Props) {
       columns={c => (c < 640 ? 2 : c < 1024 ? 3 : 4)}
       spacing={4}
       renderPhoto={({ photo, imageProps: { src, alt, style, ...rest } }) => {
-        const p: Photo = (photo as unknown as { photo: Photo }).photo
+        const p: Photo = (photo as unknown as { src: string; width: number; height: number; key: string; photo: Photo }).photo
         return (
           <motion.div
             key={p.id}
