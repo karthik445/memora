@@ -33,7 +33,7 @@ export async function presenceRoutes(app: FastifyInstance) {
       }
     }
 
-    broadcast({ type: 'presence', users: [...room.entries()].map(([id, p]) => ({ id, name: p.name })) })
+    broadcast({ type: 'presence', users: Array.from(room.entries()).map(([id, p]) => ({ id, name: p.name })) })
 
     socket.on('message', (raw: Buffer) => {
       try {
@@ -48,7 +48,7 @@ export async function presenceRoutes(app: FastifyInstance) {
     socket.on('close', () => {
       room.delete(userId)
       if (room.size === 0) rooms.delete(weddingId)
-      else broadcast({ type: 'presence', users: [...room.entries()].map(([id, p]) => ({ id, name: p.name })) })
+      else broadcast({ type: 'presence', users: Array.from(room.entries()).map(([id, p]) => ({ id, name: p.name })) })
     })
   })
 }
