@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
-import { hash as bcryptHash, compare as bcryptCompare } from 'bcryptjs'
+import bcryptjs from 'bcryptjs'
+const { hash: bcryptHash, compare: bcryptCompare } = bcryptjs
 import { db } from '../db.js'
 import { z } from 'zod'
 
