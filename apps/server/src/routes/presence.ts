@@ -24,13 +24,13 @@ export async function presenceRoutes(app: FastifyInstance) {
     room.set(userId, { name: userName, socket })
 
     const broadcast = (data: unknown) => {
-      for (const [, peer] of room) {
+      Array.from(room.values()).forEach(peer => {
         try {
           ;(peer.socket as { send: (d: string) => void }).send(JSON.stringify(data))
         } catch {
           // disconnected peer
         }
-      }
+      })
     }
 
     broadcast({ type: 'presence', users: Array.from(room.entries()).map(([id, p]) => ({ id, name: p.name })) })

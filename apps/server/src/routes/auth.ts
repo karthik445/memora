@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import bcrypt from 'bcryptjs'
+import { hash as bcryptHash, compare as bcryptCompare } from 'bcryptjs'
 import { db } from '../db.js'
 import { z } from 'zod'
 
@@ -18,10 +18,10 @@ const loginSchema = z.object({
 export async function authRoutes(app: FastifyInstance) {
   app.post('/register', async (req, reply) => {
     const body = registerSchema.parse(req.body)
-    const hash = await bcrypt.hash(body.password, 12)
+    const passwordHash = await bcryptHash(body.password, 12)
     const { rows } = await db.query(
       `INSERT INTO users (email, password_hash, name, role) VALUES ($1,$2,$3,$4) RETURNING id, email, name, role`,
-      [body.email, hash, body.name, body.role],
+      [body.email, passwordHash, body.name, body.role],
     )
     const user = rows[0]
     const token = app.jwt.sign({ sub: user.id, role: user.role })
@@ -32,7 +32,7 @@ export async function authRoutes(app: FastifyInstance) {
     const body = loginSchema.parse(req.body)
     const { rows } = await db.query(`SELECT * FROM users WHERE email=$1`, [body.email])
     const user = rows[0]
-    if (!user || !(await bcrypt.compare(body.password, user.password_hash))) {
+    if (!user || !(await bcryptCompare(body.password, user.password_hash))) {
       return reply.code(401).send({ error: 'Invalid credentials' })
     }
     const token = app.jwt.sign({ sub: user.id, role: user.role })

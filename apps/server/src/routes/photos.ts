@@ -1,8 +1,7 @@
 import type { FastifyInstance } from 'fastify'
-import path from 'path'
+import { extname } from 'path'
 import { pipeline } from 'stream/promises'
-import fs from 'fs'
-import { createWriteStream } from 'fs'
+import { statSync, createWriteStream } from 'fs'
 import { db } from '../db.js'
 import { ensureDir, mediaPath, toPublicUrl } from '../storage.js'
 import { enqueueAiJob } from '../queue.js'
@@ -19,7 +18,7 @@ export async function photoRoutes(app: FastifyInstance) {
     for await (const part of parts) {
       if (part.type !== 'file') continue
 
-      const ext = path.extname(part.filename).toLowerCase()
+      const ext = extname(part.filename).toLowerCase()
       const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.tiff', '.raw', '.cr2', '.nef']
       if (!allowed.includes(ext)) continue
 
@@ -33,7 +32,7 @@ export async function photoRoutes(app: FastifyInstance) {
 
       await pipeline(part.file, createWriteStream(fullPath))
 
-      const stat = fs.statSync(fullPath)
+      const stat = statSync(fullPath)
 
       const { rows } = await db.query(
         `INSERT INTO photos (wedding_id, storage_path, original_filename, file_size)

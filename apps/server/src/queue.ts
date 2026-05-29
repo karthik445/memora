@@ -1,11 +1,14 @@
 import { Queue } from 'bullmq'
-import IORedis from 'ioredis'
 
-export const redis = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
-  maxRetriesPerRequest: null,
-})
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
+const url = new URL(REDIS_URL)
 
-export const aiQueue = new Queue('ai-processing', { connection: redis })
+const connection = {
+  host: url.hostname,
+  port: parseInt(url.port || '6379'),
+}
+
+export const aiQueue = new Queue('ai-processing', { connection })
 
 export async function enqueueAiJob(photoId: number, weddingId: number, storagePath: string) {
   await aiQueue.add('process-photo', { photoId, weddingId, storagePath }, {
