@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: memora-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: memora_user
+      POSTGRES_PASSWORD: memora_password
+      POSTGRES_DB: memora_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/postgres:/docker-entrypoint-initdb.d
+    networks:
+      - memora-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memora_user -d memora_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: memora-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - memora-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ./apps/server
+      dockerfile: Dockerfile
+    container_name: memora-server
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgresql://memora_user:memora_password@postgres:5432/memora_db
+      REDIS_URL: redis://redis:6379
+      MEDIA_ROOT: /media
+      JWT_SECRET: ${JWT_SECRET:-dev_secret_change_in_production}
+      JWT_EXPIRES_IN: 7d
+      PORT: 3001
+      NODE_ENV: ${NODE_ENV:-development}
+      AI_SERVICE_URL: http://ai-service:8000
+    volumes:
+      - ${MEDIA_ROOT:-./media}:/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - memora-network
+
+  ai-service:
+    build:
+      context: ./apps/ai-service
+      dockerfile: Dockerfile
+    container_name: memora-ai
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_URL: redis://redis:6379
+      MEDIA_ROOT: /media
+      DATABASE_URL: postgresql://memora_user:memora_password@postgres:5432/memora_db
+    volumes:
+      - ${MEDIA_ROOT:-./media}:/media
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - memora-network
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: memora-web
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXT_PUBLIC_WS_URL: ws://localhost:3001
+    depends_on:
+      - server
+    networks:
+      - memora-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  memora-network:
+    driver: bridge
