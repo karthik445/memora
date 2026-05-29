@@ -3,6 +3,14 @@
 import { Photo } from '@/app/gallery/[id]/page'
 import PhotoAlbum from 'react-photo-album'
 import { motion } from 'framer-motion'
+import { BASE } from '@/lib/api'
+
+function mediaUrl(path: string | null | undefined): string {
+  if (!path) return ''
+  if (path.startsWith('http')) return path
+  // path is like /media/weddings/1/... — prepend the API base
+  return `${BASE}${path}`
+}
 
 interface Props {
   photos: Photo[]
@@ -12,7 +20,7 @@ interface Props {
 
 export function GalleryGrid({ photos, onSelect, onFlag }: Props) {
   const albumPhotos = photos.map(p => ({
-    src: p.thumbnailUrl || p.url,
+    src: mediaUrl(p.thumbnailUrl || p.url),
     width: p.width || 4,
     height: p.height || 3,
     key: String(p.id),

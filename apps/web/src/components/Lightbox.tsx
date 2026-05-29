@@ -3,7 +3,13 @@
 import { motion } from 'framer-motion'
 import { Photo } from '@/app/gallery/[id]/page'
 import { useEffect, useState } from 'react'
-import { apiFetch } from '@/lib/api'
+import { apiFetch, BASE } from '@/lib/api'
+
+function mediaUrl(path: string | null | undefined): string {
+  if (!path) return ''
+  if (path.startsWith('http')) return path
+  return `${BASE}${path}`
+}
 import { useAuthStore } from '@/store/auth'
 
 interface Comment { id: number; body: string; author_name: string; created_at: string }
@@ -75,7 +81,7 @@ export function Lightbox({ photo, photos, onClose, onNavigate, onFlag }: Props) 
         transition={{ duration: 0.2 }}
         className="flex-1 flex items-center justify-center p-8"
       >
-        <img src={photo.url} alt={photo.original_filename}
+        <img src={mediaUrl(photo.url)} alt={photo.original_filename}
           className="max-h-[85vh] max-w-full object-contain rounded-md shadow-2xl" />
       </motion.div>
 
