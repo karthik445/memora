@@ -27,7 +27,13 @@ export async function deleteFile(relPath: string): Promise<void> {
   }
 }
 
-/** Returns a public-facing relative URL for use in API responses. */
-export function toPublicUrl(relPath: string): string {
-  return `/media/${relPath.replace(/\\/g, '/')}`
+/** Returns a public-facing URL for use in API responses.
+ *  - Relative paths → served from /media/ (under MEDIA_ROOT)
+ *  - Absolute container paths starting with /import/ → served from /import/
+ */
+export function toPublicUrl(storagePath: string): string {
+  const p = storagePath.replace(/\\/g, '/')
+  if (p.startsWith('/import/')) return p   // already a rooted import path
+  if (p.startsWith('/media/')) return p    // already rooted
+  return `/media/${p}`
 }

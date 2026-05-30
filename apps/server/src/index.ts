@@ -19,12 +19,15 @@ await app.register(jwt, { secret: process.env.JWT_SECRET ?? 'dev_secret' })
 await app.register(multipart, { limits: { fileSize: 500 * 1024 * 1024 } }) // 500 MB per file
 await app.register(websocket)
 await app.register(staticFiles, { root: MEDIA_ROOT, prefix: '/media/' })
+// Also serve imported files that live outside MEDIA_ROOT (e.g. other drives)
+await app.register(staticFiles, { root: '/import', prefix: '/import/', decorateReply: false })
 
 app.addHook('onRequest', async (req, reply) => {
   const open = ['/auth/register', '/auth/login']
   if (open.some(p => req.url.startsWith(p))) return
   if (req.url.startsWith('/presence')) return
-  if (req.url.startsWith('/media/')) return // static files served publicly
+  if (req.url.startsWith('/media/')) return
+  if (req.url.startsWith('/import/')) return
   try {
     await req.jwtVerify()
   } catch {

@@ -195,10 +195,13 @@ export async function photoRoutes(app: FastifyInstance) {
       try { stat = statSync(fullPath) } catch { skipped.push(filename); continue }
       if (!stat.isFile()) { skipped.push(filename); continue }
 
-      // Store path relative to MEDIA_ROOT so it's portable
-      const relPath = fullPath.startsWith(MEDIA_ROOT)
-        ? fullPath.slice(MEDIA_ROOT.length).replace(/\\/g, '/').replace(/^\//, '')
-        : `imported/${weddingId}/${basename(filename)}`
+      // If file lives under MEDIA_ROOT store relative path → served as /media/...
+      // Otherwise store full container path starting with /import/ → served as /import/...
+      const normalFull = fullPath.replace(/\\/g, '/')
+      const normalMedia = MEDIA_ROOT.replace(/\\/g, '/')
+      const relPath = normalFull.startsWith(normalMedia)
+        ? normalFull.slice(normalMedia.length).replace(/^\//, '')
+        : normalFull // absolute container path e.g. /import/Screenshots/file.png
 
       // Skip already-imported files
       const { rows: existing } = await db.query(
