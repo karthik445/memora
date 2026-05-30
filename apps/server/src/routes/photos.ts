@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify'
-import { extname } from 'path'
+import { extname, join, basename } from 'path'
 import { pipeline } from 'stream/promises'
-import { statSync, createWriteStream } from 'fs'
+import { statSync, createWriteStream, readdirSync } from 'fs'
 import { db } from '../db.js'
-import { ensureDir, mediaPath, toPublicUrl } from '../storage.js'
+import { ensureDir, mediaPath, MEDIA_ROOT, toPublicUrl } from '../storage.js'
 import { enqueueAiJob } from '../queue.js'
+
+const ALLOWED_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.tiff', '.raw', '.cr2', '.nef', '.arw', '.dng'])
 
 export async function photoRoutes(app: FastifyInstance) {
   // Upload one or more photos to a wedding gallery
@@ -136,5 +138,80 @@ export async function photoRoutes(app: FastifyInstance) {
       [weddingId],
     )
     return { deleted: rowCount }
+  })
+
+  // ── Bulk import from local disk path ─────────────────────────────────────
+  // POST /photos/import?weddingId=1
+  // Body: { "folderPath": "E:\\Photos\\JohnJane2026" }
+  //
+  // Scans folderPath (must be accessible inside the container via MEDIA_ROOT
+  // or an absolute host path mounted in Docker), registers every photo in the
+  // DB and enqueues AI processing — no file copying, files stay where they are.
+  app.post('/import', async (req, reply) => {
+    const { role } = req.user as { role: string }
+    if (role !== 'photographer') return reply.code(403).send({ error: 'Only photographers can import' })
+
+    const weddingId = (req.query as { weddingId: string }).weddingId
+    if (!weddingId) return reply.code(400).send({ error: 'weddingId required' })
+
+    const { folderPath } = req.body as { folderPath?: string }
+    if (!folderPath) return reply.code(400).send({ error: 'folderPath required' })
+
+    // Resolve: if path is relative treat it as relative to MEDIA_ROOT,
+    // otherwise use as-is (absolute path on the host, must be mounted)
+    const resolvedFolder = folderPath.startsWith('/') || /^[A-Za-z]:\\/.test(folderPath)
+      ? folderPath
+      : join(MEDIA_ROOT, folderPath)
+
+    let entries: string[]
+    try {
+      entries = readdirSync(resolvedFolder)
+    } catch {
+      return reply.code(400).send({ error: `Cannot read folder: ${resolvedFolder}` })
+    }
+
+    const imported: number[] = []
+    const skipped: string[] = []
+
+    for (const filename of entries) {
+      const ext = extname(filename).toLowerCase()
+      if (!ALLOWED_EXTS.has(ext)) { skipped.push(filename); continue }
+
+      const fullPath = join(resolvedFolder, filename)
+
+      let stat
+      try { stat = statSync(fullPath) } catch { skipped.push(filename); continue }
+      if (!stat.isFile()) { skipped.push(filename); continue }
+
+      // Store path relative to MEDIA_ROOT so it's portable
+      const relPath = fullPath.startsWith(MEDIA_ROOT)
+        ? fullPath.slice(MEDIA_ROOT.length).replace(/\\/g, '/').replace(/^\//, '')
+        : `imported/${weddingId}/${basename(filename)}`
+
+      // Skip already-imported files
+      const { rows: existing } = await db.query(
+        `SELECT id FROM photos WHERE wedding_id=$1 AND storage_path=$2`,
+        [weddingId, relPath],
+      )
+      if (existing.length > 0) { skipped.push(filename); continue }
+
+      await ensureDir(`weddings/${weddingId}/thumbs`)
+
+      const { rows } = await db.query(
+        `INSERT INTO photos (wedding_id, storage_path, original_filename, file_size)
+         VALUES ($1,$2,$3,$4) RETURNING id`,
+        [weddingId, relPath, filename, stat.size],
+      )
+      const photoId = rows[0].id
+      imported.push(photoId)
+
+      await enqueueAiJob(photoId, parseInt(weddingId), relPath)
+    }
+
+    return reply.code(201).send({
+      imported: imported.length,
+      skipped: skipped.length,
+      photoIds: imported,
+    })
   })
 }

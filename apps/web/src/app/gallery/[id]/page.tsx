@@ -116,6 +116,24 @@ export default function GalleryPage() {
     fetchPhotos()
   }
 
+  async function handleImport() {
+    const folderPath = window.prompt(
+      'Enter the full folder path on your disk:\n(e.g. E:\\Photos\\JohnJane2026 or /mnt/external/photos)',
+    )
+    if (!folderPath || !token) return
+    try {
+      const result = await apiFetch<{ imported: number; skipped: number }>(
+        `/photos/import?weddingId=${id}`,
+        { method: 'POST', body: JSON.stringify({ folderPath }) },
+        token,
+      )
+      alert(`✅ Imported ${result.imported} photos (${result.skipped} skipped / already imported)`)
+      fetchPhotos()
+    } catch (e: unknown) {
+      alert(`❌ Import failed: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
   const selectedPhoto = photos.find(p => p.id === selected) ?? null
 
   return (
@@ -126,11 +144,20 @@ export default function GalleryPage() {
         <div className="ml-auto flex items-center gap-3">
           <PresenceBar peers={peers} />
           {user?.role === 'photographer' && (
-            <label className="cursor-pointer text-sm bg-brand-500 hover:bg-brand-500/80 px-3 py-1.5 rounded-lg transition">
-              {uploading ? 'Uploading…' : '+ Upload'}
-              <input type="file" multiple accept="image/*" className="hidden"
-                onChange={e => e.target.files && handleUpload(e.target.files)} />
-            </label>
+            <>
+              <button
+                onClick={handleImport}
+                className="text-sm bg-neutral-700 hover:bg-neutral-600 px-3 py-1.5 rounded-lg transition"
+                title="Import photos from a folder on your disk"
+              >
+                📂 Import from disk
+              </button>
+              <label className="cursor-pointer text-sm bg-brand-500 hover:bg-brand-500/80 px-3 py-1.5 rounded-lg transition">
+                {uploading ? 'Uploading…' : '+ Upload'}
+                <input type="file" multiple accept="image/*" className="hidden"
+                  onChange={e => e.target.files && handleUpload(e.target.files)} />
+              </label>
+            </>
           )}
         </div>
       </header>
