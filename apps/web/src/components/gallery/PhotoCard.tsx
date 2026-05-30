@@ -182,26 +182,30 @@ export function PhotoCard({ photo, thumbnailUrl, isSelected, isViewing, onClick,
 }
 
 function ActionButton({
-  children, active, pending, activeColor, onClick, ...props
+  children, active, pending, activeColor, onClick, 'aria-label': ariaLabel, title,
 }: {
   children: React.ReactNode
   active: boolean
   pending: boolean
   activeColor: string
   onClick: (e: React.MouseEvent) => void
-} & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  'aria-label'?: string
+  title?: string
+}) {
   return (
     <motion.button
       whileHover={{ scale: 1.1 }}
       whileTap={{ scale: 0.9 }}
       onClick={onClick}
+      aria-label={ariaLabel}
+      title={title}
+      type="button"
       className={cn(
         'w-6 h-6 rounded-full flex items-center justify-center transition-colors',
         active ? `${activeColor} text-white` : 'bg-black/50 text-white/80 hover:bg-black/70',
         pending && 'opacity-60 cursor-wait',
       )}
       disabled={pending}
-      {...props}
     >
       {children}
     </motion.button>
