@@ -54,6 +54,11 @@ services:
       AI_SERVICE_URL: http://ai-service:8000
     volumes:
       - ${MEDIA_ROOT:-./media}:/media
+      # All local drives mounted so Import from disk works for any path
+      - C:\:/drives/c
+      - D:\:/drives/d
+      - E:\:/drives/e
+      - F:\:/drives/f
     depends_on:
       postgres:
         condition: service_healthy
