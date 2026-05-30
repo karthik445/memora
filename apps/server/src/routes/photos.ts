@@ -157,16 +157,17 @@ export async function photoRoutes(app: FastifyInstance) {
     const { folderPath } = req.body as { folderPath?: string }
     if (!folderPath) return reply.code(400).send({ error: 'folderPath required' })
 
-    // Remap Windows drive letters to container mounts:
-    //   D:\Screenshots  →  /drives/d/Screenshots
-    //   C:\Users\...    →  /drives/c/Users/...
-    // Unix paths and relative paths stay as-is (relative → under MEDIA_ROOT)
+    // Remap Windows paths to the /import mount:
+    //   D:\Screenshots        →  /import/Screenshots
+    //   D:\Photos\Wedding     →  /import/Photos/Wedding
+    //   (IMPORT_ROOT=D:\ in .env maps D:\ to /import inside the container)
+    // Unix absolute paths pass through as-is.
+    // Relative paths resolve under MEDIA_ROOT.
     function resolveHostPath(p: string): string {
-      const winMatch = p.match(/^([A-Za-z]):[\\\/](.*)$/)
+      const winMatch = p.match(/^[A-Za-z]:[\\\/](.*)$/)
       if (winMatch) {
-        const drive = winMatch[1].toLowerCase()
-        const rest = winMatch[2].replace(/\\/g, '/')
-        return `/drives/${drive}/${rest}`
+        const rest = winMatch[1].replace(/\\/g, '/')
+        return `/import/${rest}`
       }
       if (p.startsWith('/')) return p
       return join(MEDIA_ROOT, p)
