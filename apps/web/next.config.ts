@@ -1,13 +1,12 @@
 import type { NextConfig } from 'next'
 
 const config: NextConfig = {
+  output: 'standalone',
+
   experimental: {
-    ppr: true,                    // Partial Pre-Rendering
-    reactCompiler: true,          // React Compiler (no manual memo)
     optimizePackageImports: [
       'lucide-react',
       'framer-motion',
-      '@radix-ui/react-icons',
     ],
   },
 
@@ -20,6 +19,12 @@ const config: NextConfig = {
         pathname: '/media/**',
       },
       {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '3001',
+        pathname: '/import/**',
+      },
+      {
         protocol: 'https',
         hostname: '**.r2.cloudflarestorage.com',
       },
@@ -30,6 +35,7 @@ const config: NextConfig = {
     ],
     formats: ['image/avif', 'image/webp'],
     minimumCacheTTL: 3600,
+    unoptimized: true, // photos already optimised server-side
   },
 
   async headers() {
