@@ -1,0 +1,539 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector"), pgcrypto]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum TenantPlan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum TenantRole {
+  OWNER
+  PHOTOGRAPHER
+  EDITOR
+  CLIENT
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+enum UploadSessionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  PARTIAL
+  FAILED
+  EXPIRED
+}
+
+enum PhotoSelectionFlag {
+  NONE
+  FAVORITE
+  MUST_HAVE
+  REJECTED
+}
+
+enum AiJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TENANT
+// Root entity. Every resource belongs to a tenant.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug      String     @unique @db.VarChar(64)
+  name      String     @db.VarChar(255)
+  plan      TenantPlan @default(FREE)
+  isActive  Boolean    @default(true)
+  metadata  Json?
+
+  // Audit
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Relations
+  memberships   TenantMembership[]
+  invitations   TenantInvitation[]
+  weddings      Wedding[]
+  photos        Photo[]
+  albums        Album[]
+  uploadSessions UploadSession[]
+  auditLogs     AuditLog[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@index([plan])
+  @@map("tenants")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER
+// Global user record. Identity is platform-wide; membership is per-tenant.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email           String    @unique @db.VarChar(255)
+  passwordHash    String    @db.VarChar(255)
+  firstName       String    @db.VarChar(100)
+  lastName        String    @db.VarChar(100)
+  avatarPath      String?   @db.VarChar(512)
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+  failedLoginCount Int      @default(0)
+  lockedUntil     DateTime?
+
+  // Audit
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Relations
+  memberships TenantMembership[]
+  invitations TenantInvitation[] @relation("InvitedByUser")
+  auditLogs   AuditLog[]
+  comments    PhotoComment[]
+  reactions   PhotoReaction[]
+
+  @@index([email])
+  @@index([emailVerifiedAt])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TENANT MEMBERSHIP
+// Junction between User and Tenant. Stores per-tenant role.
+// Soft-deletable to preserve audit trail when a user is removed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model TenantMembership {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String     @db.Uuid
+  userId    String     @db.Uuid
+  role      TenantRole @default(CLIENT)
+
+  // Audit
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  // A user can only have one active membership per tenant
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([tenantId, role])
+  @@map("tenant_memberships")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TENANT INVITATION
+// Time-limited, token-secured invitation. Accepted → creates TenantMembership.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model TenantInvitation {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String           @db.Uuid
+  invitedById String           @db.Uuid
+  email       String           @db.VarChar(255)
+  role        TenantRole       @default(CLIENT)
+  token       String           @unique @default(dbgenerated("encode(gen_random_bytes(32), 'hex')")) @db.VarChar(64)
+  status      InvitationStatus @default(PENDING)
+  expiresAt   DateTime
+
+  // Audit
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  acceptedAt DateTime?
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id])
+  invitedBy User   @relation("InvitedByUser", fields: [invitedById], references: [id])
+
+  @@index([tenantId])
+  @@index([email])
+  @@index([token])
+  @@index([status, expiresAt])
+  @@map("tenant_invitations")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WEDDING
+// Root aggregate for a single wedding. Scoped to a tenant.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Wedding {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String    @db.Uuid
+  slug         String    @db.VarChar(128)
+  title        String    @db.VarChar(255)
+  date         DateTime
+  coupleNames  String?   @db.VarChar(255)
+  notes        String?   @db.Text
+  coverPhotoId String?   @db.Uuid
+  isArchived   Boolean   @default(false)
+  createdById  String    @db.Uuid
+
+  // Audit
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  events  Event[]
+  photos  Photo[]
+  albums  Album[]
+
+  // Slug is unique per tenant
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([tenantId, date])
+  @@index([tenantId, isArchived])
+  @@index([tenantId, createdAt])
+  @@map("weddings")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EVENT
+// A segment within a wedding (ceremony, reception, etc.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Event {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @db.Uuid
+  weddingId   String    @db.Uuid
+  name        String    @db.VarChar(255)
+  date        DateTime?
+  location    String?   @db.VarChar(255)
+  sortOrder   Int       @default(0)
+
+  // Audit
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  wedding Wedding @relation(fields: [weddingId], references: [id])
+  photos  Photo[]
+
+  @@index([tenantId, weddingId])
+  @@index([tenantId, weddingId, sortOrder])
+  @@map("events")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHOTO
+// Central entity. Every field is either server-generated or sanitised.
+// storagePath is NEVER user-supplied — generated by server-side path builder.
+// idempotencyKey prevents duplicate ingestion from retried uploads.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Photo {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String  @db.Uuid
+  weddingId   String  @db.Uuid
+  eventId     String? @db.Uuid
+
+  // Storage — all paths server-generated, never user-supplied
+  storagePath   String  @db.VarChar(512)
+  thumbnailPath String? @db.VarChar(512)
+  webpPath      String? @db.VarChar(512)
+
+  // Original file metadata
+  originalFilename String @db.VarChar(512)
+  mimeType         String @db.VarChar(128)
+  fileSize         BigInt
+  checksum         String @db.VarChar(64) // SHA-256 of original file
+
+  // Image dimensions
+  width  Int?
+  height Int?
+
+  // EXIF / capture metadata
+  takenAt  DateTime?
+  cameraMake  String? @db.VarChar(100)
+  cameraModel String? @db.VarChar(100)
+
+  // AI processing
+  aiStatus      AiJobStatus @default(QUEUED)
+  aiProcessedAt DateTime?
+  isBlur        Boolean     @default(false)
+  blurScore     Float?
+  isDuplicate   Boolean     @default(false)
+  duplicateOfId String?     @db.Uuid
+
+  // Selection
+  selectionFlag PhotoSelectionFlag @default(NONE)
+
+  // Upload idempotency — SHA-256(tenantId + weddingId + originalFilename + fileSize + checksum)
+  idempotencyKey String @unique @db.VarChar(64)
+
+  // Audit
+  uploadedById String    @db.Uuid
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  // Relations
+  tenant      Tenant  @relation(fields: [tenantId], references: [id])
+  wedding     Wedding @relation(fields: [weddingId], references: [id])
+  event       Event?  @relation(fields: [eventId], references: [id])
+  duplicateOf Photo?  @relation("PhotoDuplicates", fields: [duplicateOfId], references: [id])
+  duplicates  Photo[] @relation("PhotoDuplicates")
+
+  embedding      PhotoEmbedding?
+  faceDetections FaceDetection[]
+  comments       PhotoComment[]
+  reactions      PhotoReaction[]
+
+  // Index strategy:
+  // 1. (tenantId, weddingId) — all gallery list queries
+  // 2. (tenantId, weddingId, selectionFlag) — filtered views (favorites, must-haves)
+  // 3. (tenantId, weddingId, aiStatus) — AI processing queue queries
+  // 4. (tenantId, weddingId, createdAt) — cursor pagination, default sort
+  // 5. (tenantId, weddingId, takenAt)  — cursor pagination, chronological sort
+  // 6. idempotencyKey — dedup on upload
+  // 7. checksum — cross-wedding duplicate detection
+  @@index([tenantId, weddingId])
+  @@index([tenantId, weddingId, selectionFlag])
+  @@index([tenantId, weddingId, aiStatus])
+  @@index([tenantId, weddingId, createdAt])
+  @@index([tenantId, weddingId, takenAt])
+  @@index([tenantId, weddingId, isBlur])
+  @@index([tenantId, weddingId, isDuplicate])
+  @@index([idempotencyKey])
+  @@index([checksum])
+  @@index([uploadedById])
+  @@map("photos")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHOTO EMBEDDING
+// Separated from Photo to keep the main table lean.
+// pgvector extension handles the vector(512) column type.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model PhotoEmbedding {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  photoId   String   @unique @db.Uuid
+  tenantId  String   @db.Uuid
+  /// CLIP 512-dimensional embedding — stored via pgvector
+  embedding Unsupported("vector(512)")?
+  model     String   @default("clip-vit-b-32") @db.VarChar(64)
+  createdAt DateTime @default(now())
+
+  photo Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("photo_embeddings")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FACE DETECTION
+// One row per detected face per photo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model FaceDetection {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  photoId     String   @db.Uuid
+  tenantId    String   @db.Uuid
+  /// Normalised bounding box: { x: float, y: float, w: float, h: float } (0-1)
+  boundingBox Json
+  confidence  Float
+  personLabel String?  @db.VarChar(128)
+  /// 512-dim InsightFace embedding
+  embedding   Unsupported("vector(512)")?
+  createdAt   DateTime @default(now())
+
+  photo Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, photoId])
+  @@index([tenantId, personLabel])
+  @@map("face_detections")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ALBUM
+// A curated subset of photos from a wedding. Has a share token for client access.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Album {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @db.Uuid
+  weddingId   String    @db.Uuid
+  title       String    @db.VarChar(255)
+  description String?   @db.Text
+  isPublic    Boolean   @default(false)
+  /// Cryptographically random share token — used for client gallery access
+  shareToken  String    @unique @default(dbgenerated("encode(gen_random_bytes(32), 'hex')")) @db.VarChar(64)
+  createdById String    @db.Uuid
+
+  // Audit
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  wedding Wedding @relation(fields: [weddingId], references: [id])
+  photos  AlbumPhoto[]
+
+  @@index([tenantId, weddingId])
+  @@index([shareToken])
+  @@map("albums")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ALBUM PHOTO
+// Ordered junction. sortOrder enables manual curation of album sequence.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AlbumPhoto {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  albumId   String   @db.Uuid
+  photoId   String   @db.Uuid
+  tenantId  String   @db.Uuid
+  sortOrder Int      @default(0)
+  addedById String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  album Album @relation(fields: [albumId], references: [id], onDelete: Cascade)
+
+  @@unique([albumId, photoId])
+  @@index([albumId, sortOrder])
+  @@index([tenantId, photoId])
+  @@map("album_photos")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHOTO COMMENT
+// Per-photo threaded comments. Soft-deleted to preserve reply context.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model PhotoComment {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  photoId   String    @db.Uuid
+  tenantId  String    @db.Uuid
+  authorId  String    @db.Uuid
+  body      String    @db.Text
+  parentId  String?   @db.Uuid
+
+  // Audit
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  photo    Photo        @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  author   User         @relation(fields: [authorId], references: [id])
+  parent   PhotoComment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies  PhotoComment[] @relation("CommentReplies")
+
+  @@index([tenantId, photoId])
+  @@index([tenantId, photoId, createdAt])
+  @@map("photo_comments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHOTO REACTION
+// One reaction per user per emoji per photo. Unique constraint prevents duplication.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model PhotoReaction {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  photoId   String   @db.Uuid
+  tenantId  String   @db.Uuid
+  userId    String   @db.Uuid
+  emoji     String   @db.VarChar(10)
+  createdAt DateTime @default(now())
+
+  photo Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@unique([photoId, userId, emoji])
+  @@index([tenantId, photoId])
+  @@map("photo_reactions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UPLOAD SESSION
+// Idempotency anchor for bulk upload operations.
+// One session per upload batch. Tracks per-file progress.
+// Client retries same idempotencyKey → same session, no duplication.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model UploadSession {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String              @db.Uuid
+  weddingId      String              @db.Uuid
+  eventId        String?             @db.Uuid
+  uploadedById   String              @db.Uuid
+  idempotencyKey String              @unique @db.VarChar(64)
+  status         UploadSessionStatus @default(PENDING)
+  totalFiles     Int                 @default(0)
+  processedFiles Int                 @default(0)
+  failedFiles    Int                 @default(0)
+  metadata       Json?
+  expiresAt      DateTime
+
+  // Audit
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, weddingId])
+  @@index([idempotencyKey])
+  @@index([status, expiresAt])
+  @@map("upload_sessions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIT LOG
+// Append-only. No soft delete. No update. Immutable compliance record.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String?  @db.Uuid
+  userId     String?  @db.Uuid
+  action     String   @db.VarChar(128)
+  resource   String   @db.VarChar(128)
+  resourceId String?  @db.Uuid
+  metadata   Json?
+  ipAddress  String?  @db.VarChar(45) // IPv6 max length
+  userAgent  String?  @db.VarChar(512)
+  createdAt  DateTime @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([userId, createdAt])
+  @@index([resource, resourceId])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
