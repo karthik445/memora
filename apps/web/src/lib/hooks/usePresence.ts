@@ -25,7 +25,7 @@ export function usePresence(weddingId: string) {
   const [peers, setPeers] = useState<PresencePeer[]>([])
   const [isConnected, setIsConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
-  const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>()
+  const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const connect = useCallback(() => {
     if (!accessToken || !tenantId || !weddingId) return
