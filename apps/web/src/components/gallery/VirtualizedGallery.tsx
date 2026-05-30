@@ -157,19 +157,11 @@ export function VirtualizedGallery({
                 left: 0,
                 width: '100%',
                 transform: `translateY(${virtualRow.start}px)`,
-              }}
-              className="grid gap-1"
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                transform: `translateY(${virtualRow.start}px)`,
                 display: 'grid',
                 gridTemplateColumns: `repeat(${columnCount}, 1fr)`,
                 gap: '4px',
                 paddingBottom: '4px',
-              } as React.CSSProperties}
+              }}
               role="row"
             >
               {columns.map((col, colIdx) => {
