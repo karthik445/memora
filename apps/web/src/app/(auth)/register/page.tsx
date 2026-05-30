@@ -54,9 +54,9 @@ export default function RegisterPage() {
 
   const mutation = useMutation({
     mutationFn: (data: FormValues) =>
-      api.post<AuthResult & { tenantId: string }>('/auth/register', data),
+      api.post<AuthResult & { tenantId: string | null }>('/auth/register', data, { skipAuth: true }),
     onSuccess: (result) => {
-      setAuth(result.user, result.accessToken, result.tenantId)
+      setAuth(result.user, result.accessToken, result.tenantId ?? '')
       router.replace('/dashboard')
       toast.success('Welcome to Memora!')
     },

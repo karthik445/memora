@@ -32,9 +32,9 @@ export default function LoginPage() {
 
   const loginMutation = useMutation({
     mutationFn: (data: FormValues) =>
-      api.post<AuthResult>('/auth/login', data, { skipAuth: true } as never),
+      api.post<AuthResult & { tenantId: string | null }>('/auth/login', data, { skipAuth: true }),
     onSuccess: (result) => {
-      setAuth(result.user, result.accessToken, (result as AuthResult & { tenantId: string }).tenantId ?? '')
+      setAuth(result.user, result.accessToken, result.tenantId ?? '')
       router.replace('/dashboard')
     },
     onError: (err) => {

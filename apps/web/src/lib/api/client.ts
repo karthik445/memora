@@ -15,16 +15,20 @@ export class ApiRequestError extends Error {
   }
 }
 
+interface RequestOptions {
+  skipAuth?: boolean
+}
+
 async function request<T>(
   path: string,
   init: RequestInit = {},
-  options: { skipAuth?: boolean } = {},
+  options: RequestOptions = {},
 ): Promise<T> {
   const headers: Record<string, string> = {
     ...(init.body && !(init.body instanceof FormData)
       ? { 'Content-Type': 'application/json' }
       : {}),
-    ...(init.headers as Record<string, string>),
+    ...(init.headers as Record<string, string> | undefined),
   }
 
   if (!options.skipAuth) {
@@ -43,26 +47,47 @@ async function request<T>(
 
   if (!res.ok) {
     const err = data as ApiError | null
-    throw new ApiRequestError(
-      err?.error?.code ?? 'REQUEST_ERROR',
-      err?.error?.message ?? res.statusText,
-      res.status,
-      err?.requestId,
-    )
+    // Handle old server error format (plain { error: string })
+    const message =
+      typeof err?.error === 'string'
+        ? err.error
+        : err?.error?.message ?? res.statusText
+    const code =
+      typeof err?.error === 'object' ? (err?.error?.code ?? 'REQUEST_ERROR') : 'REQUEST_ERROR'
+
+    throw new ApiRequestError(code, message, res.status, err?.requestId)
   }
 
   return data as T
 }
 
 export const api = {
-  get:    <T>(path: string, init?: RequestInit) => request<T>(path, { ...init, method: 'GET' }),
-  post:   <T>(path: string, body?: unknown, init?: RequestInit) =>
-    request<T>(path, { ...init, method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
-  patch:  <T>(path: string, body?: unknown, init?: RequestInit) =>
-    request<T>(path, { ...init, method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined }),
-  put:    <T>(path: string, body?: unknown, init?: RequestInit) =>
-    request<T>(path, { ...init, method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined }),
-  delete: <T>(path: string, init?: RequestInit) => request<T>(path, { ...init, method: 'DELETE' }),
+  get: <T>(path: string, options?: RequestOptions) =>
+    request<T>(path, { method: 'GET' }, options),
+
+  post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
+    request<T>(
+      path,
+      { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined },
+      options,
+    ),
+
+  patch: <T>(path: string, body?: unknown, options?: RequestOptions) =>
+    request<T>(
+      path,
+      { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined },
+      options,
+    ),
+
+  put: <T>(path: string, body?: unknown, options?: RequestOptions) =>
+    request<T>(
+      path,
+      { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined },
+      options,
+    ),
+
+  delete: <T>(path: string, options?: RequestOptions) =>
+    request<T>(path, { method: 'DELETE' }, options),
 
   upload: <T>(path: string, form: FormData) =>
     request<T>(path, { method: 'POST', body: form }),
